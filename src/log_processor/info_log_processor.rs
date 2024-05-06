@@ -51,7 +51,7 @@ pub struct InfoLogProcessor;
 impl LogProcessor for InfoLogProcessor {
     type Out = LogInfo;
 
-    fn parse<C: AsRef<str>>(content: C) -> LogInfo {
+    fn parse<C: AsRef<str>>(&self, content: C) -> LogInfo {
         let info = Arc::new(Mutex::new(LogInfo::new()));
         let data = content.as_ref();
         
@@ -78,4 +78,8 @@ impl LogProcessor for InfoLogProcessor {
         Arc::try_unwrap(info).ok().expect("Falha ao recuperar o objeto").into_inner().unwrap()
     }
     
+}
+
+impl InfoLogProcessor {
+    pub(crate) fn new() -> Self {Self}
 }

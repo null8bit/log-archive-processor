@@ -1,7 +1,7 @@
 mod archive;
 mod log_processor;
 
-use std::io::Result;
+use std::{io::Result, ops::Deref, sync::{Arc, Mutex}};
 
 use archive::{z_archive::Zarchive, ArchiveFilter};
 use lazy_static::lazy_static;
@@ -9,7 +9,7 @@ use log_processor::log_filter::LogFilter;
 
 use regex::Regex;
 
-use crate::{archive::Archive, log_processor::{info_log_processor::InfoLogProcessor, LogProcessor}};
+use crate::{archive::Archive, log_processor::{info_log_processor::InfoLogProcessor, pass_log_processor::PassLogProcessor, LogProcessor}};
 
 lazy_static! {
     static ref SYSTEM_INFO_REGEX: Regex = Regex::new(r"(?i)((system)|(info))").unwrap();
@@ -30,25 +30,61 @@ async fn main() -> Result<()>{
     ), Some(vec![
         String::from("txt")
     ]));
-    
+
+
     let content = zarchive.enumerate(filter.clone());
+
     let relationed = filter.relation_mapper(content).to_owned();
+    
+    for (_, filenames) in relationed {
+        let mut filenames = filenames.iter();
+        let get_infos_filename = filenames.find(|filename| SYSTEM_INFO_REGEX.is_match(&filename));
+        let get_passw_filename = filenames.find(|filename| PASSWORD_REGEX.is_match(&filename));
+        let get_cooks_filename: Vec<_> = filenames
+        .filter(|filename| COOKIES_REGEX.is_match(&filename))
+        .collect();
 
-    for (folder, filenames) in relationed {
+        if let (Some(infos_filename), Some(passw_filename)) = (get_infos_filename, get_passw_filename) {
+            let Ok(content) = zarchive.reader(&infos_filename).await else {
+                println!("[-] Cannot read file");
+                continue;
+            };
+            let info_processor = InfoLogProcessor::new();
+            let info = info_processor.parse(content);
 
-        let get_info_filename = filenames.iter().find(|e| SYSTEM_INFO_REGEX.is_match(e));
-        let get_pass_filename = filenames.iter().find(|e| PASSWORD_REGEX.is_match(e));
-        let get_cook_filename = filenames.iter().find(|e| COOKIES_REGEX.is_match(e));
+            if let Ok(content) = zarchive.reader(&passw_filename).await {
+                let passw_processor = PassLogProcessor::new(&info);
+                let passw_parser = passw_processor.parse(content);
 
-        if let (Some(info_filename), Some(pass), Some(cook)) = (get_info_filename, get_pass_filename, get_cook_filename) {
-            let content = zarchive.reader(info_filename).await?;
-            let infos = InfoLogProcessor::parse(content);
-            
-
-            println!("Folder: {}\nInfo: {:?}",  folder, infos);
+                println!("[+] total passwords => {}", passw_parser.len())
+            }
         };
 
     }
+    //  {
+
+    //     
+        
+    //      {
+    //         
+    //         
+    //             let mut z_archive_instance2 = Arc::into_inner(z_archive_clone2).expect("cannot recover").into_inner().unwrap();
+
+
+    //             
+
+    //             Ok(infos)
+    //         }).await?;
+
+    //         let Ok(infos) = infos_parser else {
+    //             eprintln!("[-] Infos parsing error");
+    //             continue;
+    //         };
+
+    //         println!("{:?}", infos);
+    //     }
+
+    // }
 
     println!("Elapsed at: {}", time.elapsed().as_millis());
 

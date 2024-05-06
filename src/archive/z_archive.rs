@@ -9,6 +9,7 @@ use zip::ZipArchive;
 use super::ArchiveFilter;
 use super::Archive;
 
+#[derive(Debug)]
 pub struct Zarchive {
    archive: ZipArchive<File>
 }

@@ -4,5 +4,5 @@ pub mod pass_log_processor;
 
 pub trait LogProcessor {
     type Out;
-    fn parse<C: AsRef<str>>(content: C) -> Self::Out;
+    fn parse<C: AsRef<str>>(&self, content: C) -> Self::Out;
 }
