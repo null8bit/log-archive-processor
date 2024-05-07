@@ -33,7 +33,7 @@ impl Archive for Zarchive {
         ).to_vec()
     }
 
-    async fn reader(&mut self, filename: &str) -> tokio::io::Result<String> {
+    fn reader(&mut self, filename: &str) -> tokio::io::Result<String> {
         let mut z_file = self.archive.by_name(filename)?;
         let mut buffer = Vec::new();
 

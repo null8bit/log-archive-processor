@@ -77,6 +77,7 @@ impl LogProcessor for PassLogProcessor {
 
             match key.as_ref() {
                 "url" => {
+                    
                     if !url_ref.is_empty() && !username_ref.is_empty() && !password_ref.is_empty() {
                         credential.set(CredentialFields::Url(Some(url_ref.to_string())));
                         credential.set(CredentialFields::Username(Some(username_ref.to_string())));

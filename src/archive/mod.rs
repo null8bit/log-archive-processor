@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{io::Result, path::Path};
 
 use regex::Regex;
 
@@ -33,5 +33,28 @@ pub trait Archive {
     type This;
     async fn new<P: AsRef<Path>>(file: P) -> std::io::Result<Self::This>;
     fn enumerate(&self, filter: impl ArchiveFilter) -> Vec<&str>;
-    async fn reader(&mut self, filename: &str) -> tokio::io::Result<String>;
+    fn reader(&mut self, filename: &str) -> tokio::io::Result<String>;
+}
+pub enum SupportedExtension {
+    Zip,
+    Unsupported
+}
+
+pub struct ArchiveUtils;
+
+impl ArchiveUtils {
+    pub fn verify_extension<P: AsRef<Path>>(path: P) -> Result<SupportedExtension> {
+        let path = path.as_ref();
+        if !path.is_file() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Path have be a file"));
+        }
+        let extension = path.extension().unwrap();
+
+        match extension.to_str().unwrap() {
+            "zip" => Ok(SupportedExtension::Zip),
+            _ => {
+                Ok(SupportedExtension::Unsupported)
+            }
+        }
+    }
 }
