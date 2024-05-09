@@ -1,16 +1,14 @@
 mod archive;
 mod log_processor;
 
-use std::{io::Result, ops::Deref, sync::{Arc, Mutex}};
-
+use std::sync::Arc;
 use archive::{z_archive::Zarchive, ArchiveFilter, ArchiveUtils};
 use lazy_static::lazy_static;
 use log_processor::log_filter::LogFilter;
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
 
-use crate::{archive::Archive, log_processor::{info_log_processor::InfoLogProcessor, pass_log_processor::PassLogProcessor, LogProcessor}};
+use crate::{archive::Archive, log_processor::{cook_log_processor::CookieLogProcessor, info_log_processor::InfoLogProcessor, pass_log_processor::PassLogProcessor, LogProcessor}};
 
 lazy_static! {
     static ref SYSTEM_INFO_REGEX: Regex = Regex::new(r"(?i)((system)|(info))").unwrap();
@@ -40,7 +38,8 @@ async fn main() -> tokio::io::Result<()>{
 
     let content = archive.enumerate(filter.clone());
     let logs = filter.relation_mapper(content).to_owned();
-
+    let mut tasks = Vec::new();
+    
     for (_, filenames) in logs {
         let mut filenames_into_iter = filenames.iter();
 
@@ -55,45 +54,51 @@ async fn main() -> tokio::io::Result<()>{
             };
 
             let info_processor = InfoLogProcessor::new();
-            let info = info_processor.parse(content);
+            let info = Arc::new(info_processor.parse(content));
 
             if let Ok(content) = archive.reader(passw_filename) {
-                let passw_processor = PassLogProcessor::new(&info);
-                let passw_parser = passw_processor.parse(&content);
+                let info = info.clone();
 
-                
+                let passw_task = tokio::spawn(async move {
+                    let passw_processor = PassLogProcessor::new(&info);
+                    let passw_parser = passw_processor.parse(&content);
+                    
+                    if !passw_parser.is_empty() {
+                        
+                    }
+                });
+
+                tasks.push(passw_task)       
+            }
+
+            if !get_cooks_filename.is_empty() {
+                for item in get_cooks_filename {
+                    let info = info.clone();
+                    if let Ok(content) = archive.reader(&item) {
+                        let cookie_task = tokio::spawn(async move {
+                            let cookie_processor = CookieLogProcessor::new(&info);
+
+                            match cookie_processor.parse(content) {
+                                Ok(result) => {
+                                    
+                                },
+                                Err(err) => {}
+                            };
+                        });
+
+                        tasks.push(cookie_task)
+                    }
+                }
             }
         }
+        
     };
-    /* 
-    let z_archive = Zarchive::new().await?;
 
-
-    
-
-    
-
-    
-    
-     {
-        let filenames = Arc::new(filenames.clone());
-
-        tokio::task::spawn(async move {
-            let filenames = filenames.deref().clone();
-            
-            let mut z_archive = z_archive_clone.deref();
-
-
-                
-
-
-
-            // };
-        }).await?;
+    for task in tasks {
+        task.await?
     }
 
-
     println!("Elapsed at: {}", time.elapsed().as_millis());
-    */
+    
     Ok(())
 }

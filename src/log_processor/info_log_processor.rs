@@ -18,6 +18,7 @@ pub struct LogInfo {
     hwid: InfoType
 }
 
+#[allow(dead_code)]
 impl LogInfo {
     
     pub fn new() -> Self {
