@@ -1,4 +1,4 @@
-use std::{io::Result, path::Path};
+use std::{fs::File, io::{BufReader, Read, Result}, path::Path};
 
 use regex::Regex;
 
@@ -43,6 +43,37 @@ pub enum SupportedExtension {
 pub struct ArchiveUtils;
 
 impl ArchiveUtils {
+    pub fn generate_hash<P: AsRef<Path>>(path: P) -> Result<String> {
+        let filepath = path.as_ref();
+        let file = File::open(&filepath)?;
+
+        let mut hash = md5::Context::new();
+
+        let mut reader = BufReader::new(file);
+        let mut buff = Vec::new();
+
+        while let Ok(bytes) = reader.read(&mut buff) {
+          if bytes == 0 {
+            break;
+          }  
+
+          hash.consume(&buff[..bytes])
+        }; 
+
+        let result = hash.compute();
+
+        Ok(format!("{:x}", result))
+
+    }
+    pub fn verify_existence<P: AsRef<Path>>(path: P) -> Result<bool> {
+        let filepath = path.as_ref();
+
+        if !filepath.exists() {
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "file_not_exists"))
+        } else {
+            Ok(true)
+        }
+    }
     pub fn verify_extension<P: AsRef<Path>>(path: P) -> Result<SupportedExtension> {
         let path = path.as_ref();
         if !path.is_file() {

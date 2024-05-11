@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
-
 use rayon::prelude::*;
+use serde::{Serialize, Deserialize};
 
 use super::LogProcessor;
 
@@ -12,7 +12,7 @@ pub enum LogInfoFields {
     Hwid(String)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LogInfo {
     country: InfoType,
     hwid: InfoType

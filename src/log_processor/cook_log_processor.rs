@@ -2,6 +2,7 @@ use std::{collections::HashMap, io::Error};
 
 use lazy_static::lazy_static;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 use super::{info_log_processor::LogInfo, LogProcessor};
 
@@ -20,7 +21,7 @@ pub enum CookieFields {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cookie {
     domain: String,
     http_only: String,
@@ -36,6 +37,20 @@ pub struct Cookie {
 pub struct LogCookie {
     info: LogInfo,
     cookies: Vec<Cookie>
+}
+
+impl LogCookie {
+    fn new(info: LogInfo, cookies: Vec<Cookie>) -> Self {
+        Self { info, cookies }
+    }
+
+    pub fn cookies(&self) -> Vec<Cookie> {
+        self.cookies.clone()
+    }
+
+    pub fn infos(&self) -> LogInfo {
+        self.info.clone()
+    }
 }
 impl Cookie {
     pub fn new() -> Self {
@@ -97,7 +112,7 @@ impl LogProcessor for CookieLogProcessor {
                 cookie.set(CookieFields::Name(explode[5].to_string()));
                 cookie.set(CookieFields::Value(explode[6].to_string()));
 
-                let entry = cookies_map.entry(cookie.domain.clone()).or_insert(LogCookie { info: log_info, cookies: Vec::new() });
+                let entry = cookies_map.entry(cookie.domain.clone()).or_insert(LogCookie::new( log_info, Vec::new() ));
                 entry.cookies.push(cookie)
 
                 // let entry = cookies_map.entry(cookie.domain.clone()).or_insert(Vec::new());

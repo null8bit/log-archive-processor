@@ -1,14 +1,25 @@
 mod archive;
 mod log_processor;
 
-use std::sync::Arc;
-use archive::{z_archive::Zarchive, ArchiveFilter, ArchiveUtils};
+use std::{fs::{File, OpenOptions}, io::Write, sync::{Arc, Mutex}};
 use lazy_static::lazy_static;
-use log_processor::log_filter::LogFilter;
-
 use regex::Regex;
 
-use crate::{archive::Archive, log_processor::{cook_log_processor::CookieLogProcessor, info_log_processor::InfoLogProcessor, pass_log_processor::PassLogProcessor, LogProcessor}};
+
+use crate::{
+    archive::SupportedExtension,
+    archive::Archive, 
+    archive::z_archive::Zarchive,
+    archive::ArchiveFilter,
+    archive::ArchiveUtils,
+    log_processor::{
+        log_filter::LogFilter,
+        cook_log_processor::CookieLogProcessor, 
+        info_log_processor::InfoLogProcessor, 
+        pass_log_processor::PassLogProcessor, 
+        LogProcessor
+    }
+};
 
 lazy_static! {
     static ref SYSTEM_INFO_REGEX: Regex = Regex::new(r"(?i)((system)|(info))").unwrap();
@@ -19,14 +30,31 @@ lazy_static! {
 #[tokio::main]
 async fn main() -> tokio::io::Result<()>{
     let time = std::time::Instant::now();
-    let filename = "C:\\Users\\conta\\Downloads\\Telegram Desktop\\2024-04-23_b_@logsinspector.zip";
+    
+    let select_file = rfd::AsyncFileDialog::new()
+    .set_directory("/")
+    .pick_file().await;
+
+    let file = select_file.expect("cannot open file");
+    
+    let filename = file.path();
+
+    ArchiveUtils::verify_existence(&filename)?;
 
     let extension = ArchiveUtils::verify_extension(&filename)?;
 
     let mut archive = match extension {
-        archive::SupportedExtension::Zip => Ok(Zarchive::new(&filename).await),
-        archive::SupportedExtension::Unsupported => Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Unsupported File"))
+        SupportedExtension::Zip => Ok(Zarchive::new(&filename).await),
+        SupportedExtension::Unsupported => Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Unsupported File"))
     }??;
+
+    let filehash = ArchiveUtils::generate_hash(&filename)?;
+
+    let output = Arc::new(Mutex::new(OpenOptions::new()
+    .create(true)
+    .append(true)
+    .write(true)
+    .open(&filehash)?));
 
     let mut filter = LogFilter::new(
         Some(vec![
@@ -73,16 +101,31 @@ async fn main() -> tokio::io::Result<()>{
 
             if !get_cooks_filename.is_empty() {
                 for item in get_cooks_filename {
+                    let c_output = output.clone();
+
                     let info = info.clone();
                     if let Ok(content) = archive.reader(&item) {
                         let cookie_task = tokio::spawn(async move {
                             let cookie_processor = CookieLogProcessor::new(&info);
+                            let mut lock_output = c_output.lock().unwrap();
 
                             match cookie_processor.parse(content) {
                                 Ok(result) => {
-                                    
+                                    match result.get("mercadopago.com.br") {
+                                        Some(value) => {
+                                            let cookie = value.cookies();
+                                            let to_string = serde_json::to_string(&cookie).unwrap();
+
+                                            if let Err(write_err) = writeln!(&mut lock_output, "{}", to_string) {
+                                                eprintln!("{}", write_err)
+                                            };
+                                        },
+                                        None => {},
+                                    }
                                 },
-                                Err(err) => {}
+                                Err(err) => {
+                                    
+                                }
                             };
                         });
 

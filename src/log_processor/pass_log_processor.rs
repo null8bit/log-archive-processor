@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use rayon::{iter::ParallelIterator, str::ParallelString};
+use serde::{Deserialize, Serialize};
 
 use super::{info_log_processor::LogInfo, LogProcessor};
 
@@ -14,7 +15,7 @@ enum CredentialFields {
     Info(LogInfo)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Credential {
     url: CredentialType,
     username: CredentialType,
