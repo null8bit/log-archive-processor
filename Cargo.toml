@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+elasticsearch = "8.5.0-alpha.1"
 lazy_static = "1.4.0"
 md5 = "0.7.0"
 rayon = "1.10.0"

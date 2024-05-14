@@ -72,7 +72,9 @@ impl LogProcessor for InfoLogProcessor {
                 "country" => {
                     info.set(LogInfoFields::Country(value.to_string()))
                 }
-                _ => {}
+                _ => {
+                    
+                }
             }
         });
 

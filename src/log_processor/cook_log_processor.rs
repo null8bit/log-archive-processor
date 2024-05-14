@@ -20,7 +20,18 @@ pub enum CookieFields {
     Value(String)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CookieDocument {
+    domain: String,
+    country: String,
+    cookies: Vec<Cookie>
+}
 
+impl CookieDocument {
+    pub fn new(domain: String, country: String, cookies: Vec<Cookie>) -> Self {
+        Self { domain, country, cookies }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cookie {
     domain: String,
@@ -32,26 +43,7 @@ pub struct Cookie {
     value: String
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub struct LogCookie {
-    info: LogInfo,
-    cookies: Vec<Cookie>
-}
 
-impl LogCookie {
-    fn new(info: LogInfo, cookies: Vec<Cookie>) -> Self {
-        Self { info, cookies }
-    }
-
-    pub fn cookies(&self) -> Vec<Cookie> {
-        self.cookies.clone()
-    }
-
-    pub fn infos(&self) -> LogInfo {
-        self.info.clone()
-    }
-}
 impl Cookie {
     pub fn new() -> Self {
         Self { domain: String::new(), http_only: String::new(), path: String::new(), secure: String::new(), name: String::new(), value: String::new(), expires_in: String::new() }
@@ -75,7 +67,7 @@ pub struct CookieLogProcessor {
 }
 
 impl LogProcessor for CookieLogProcessor {
-    type Out = Result<HashMap<String, LogCookie>, std::io::Error>;
+    type Out = Result<HashMap<String, CookieDocument>, std::io::Error>;
 
     fn parse<C: AsRef<str>>(&self, content: C) -> Self::Out {
         let mut cookies_map = HashMap::new();
@@ -112,11 +104,9 @@ impl LogProcessor for CookieLogProcessor {
                 cookie.set(CookieFields::Name(explode[5].to_string()));
                 cookie.set(CookieFields::Value(explode[6].to_string()));
 
-                let entry = cookies_map.entry(cookie.domain.clone()).or_insert(LogCookie::new( log_info, Vec::new() ));
+                let entry = cookies_map.entry(cookie.domain.clone())
+                .or_insert(CookieDocument::new(cookie.domain.clone(), log_info.country().unwrap_or(String::from("UNK")), Vec::new()));
                 entry.cookies.push(cookie)
-
-                // let entry = cookies_map.entry(cookie.domain.clone()).or_insert(Vec::new());
-                // entry.push(cookie);
             }
         });
 
