@@ -2,13 +2,12 @@ mod archive;
 mod elastic_client;
 mod log_processor;
 
+use std::sync::Arc;
+
 use lazy_static::lazy_static;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
 use serde_json::{json, Value};
-use std::{
-    fs::OpenOptions, sync::{Arc, Mutex}
-};
 
 use crate::{
     archive::{z_archive::Zarchive, Archive, ArchiveFilter, ArchiveUtils, SupportedExtension},
@@ -24,7 +23,6 @@ lazy_static! {
     static ref PASSWORD_REGEX: Regex = Regex::new(r"(?i)(pass)").unwrap();
     static ref COOKIES_REGEX: Regex = Regex::new(r"(?i)(cookies)").unwrap();
 }
-
 
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
@@ -69,7 +67,6 @@ async fn main() -> tokio::io::Result<()> {
 
     let elastic = Arc::new(ElasticsearchClient::new().await?);
 
-
     let (tx_cookies, mut rx_cookies) = tokio::sync::mpsc::channel::<Vec<Value>>(4096);
     let (tx_passwd, mut rx_passwd) = tokio::sync::mpsc::channel::<Vec<Value>>(4096);
     let time = std::time::Instant::now();
@@ -95,16 +92,14 @@ async fn main() -> tokio::io::Result<()> {
         )),
     }??;
 
-    // let filehash = ArchiveUtils::generate_hash(&filename)?;
+    let filehash = ArchiveUtils::generate_hash(&filename)?;
+    let is_registered = ArchiveUtils::is_registered(&filehash)?;
 
-    // let _output = Arc::new(Mutex::new(
-    //     OpenOptions::new()
-    //         .create(true)
-    //         .append(true)
-    //         .write(true)
-    //         .open(format!("{}.txt", &filehash))?,
-    // ));
-
+    if is_registered {
+        println!("File already processed");
+        return Ok(());
+    }
+    
     let mut filter = LogFilter::new(
         Some(vec![
             Regex::new(r"(?i)((pass)|(system)|(info)|(cookies))").unwrap()
@@ -113,15 +108,15 @@ async fn main() -> tokio::io::Result<()> {
     );
 
     let content = archive.enumerate(filter.clone());
-    let logs = filter.relation_mapper(content).to_owned();
+    let mut logs = filter.relation_mapper(content).to_owned();
     let mut tasks = Vec::new();
 
     let c_elastic = elastic.clone();
 
-    let _= c_elastic.create_indice(elastic_cookies_mapping).await;
-    let _= c_elastic.create_indice(elastic_credentials_mapping).await;  
-     
-    for (_, filenames) in logs {
+    let _ = c_elastic.create_indice(elastic_cookies_mapping).await;
+    let _ = c_elastic.create_indice(elastic_credentials_mapping).await;
+
+    logs.drain().for_each(|(_, filenames)| {
         let mut filenames_into_iter = filenames.iter();
 
         let get_infos_filename =
@@ -136,14 +131,12 @@ async fn main() -> tokio::io::Result<()> {
             (get_infos_filename, get_passw_filename)
         {
             let Ok(content) = archive.reader(infos_filename) else {
-                eprintln!(
-                    "{}",
-                    tokio::io::Error::new(
-                        tokio::io::ErrorKind::InvalidData,
-                        "Cannot Read Info File"
-                    )
+                let err = tokio::io::Error::new(
+                    tokio::io::ErrorKind::InvalidData,
+                    "Cannot Read Info File",
                 );
-                continue;
+                eprintln!("{}", err);
+                return;
             };
 
             let info_processor = InfoLogProcessor::new();
@@ -151,18 +144,19 @@ async fn main() -> tokio::io::Result<()> {
 
             if let Ok(content) = archive.reader(passw_filename) {
                 let info = info.clone();
-                
+
                 let sender = tx_passwd.clone();
                 let passw_task = tokio::spawn(async move {
                     let passw_processor = PassLogProcessor::new(&info);
-                    let passw_parser = passw_processor.parse(&content)
-                    .par_iter()
-                    .map(|item| item.to_owned())
-                    .map(|item| serde_json::to_value(item))
-                    .filter_map(|item| item.ok())
-                    .collect::<Vec<_>>();
+                    let passw_parser = passw_processor
+                        .parse(&content)
+                        .par_iter()
+                        .map(|item| item.to_owned())
+                        .map(|item| serde_json::to_value(item))
+                        .filter_map(|item| item.ok())
+                        .collect::<Vec<_>>();
 
-                    let _=sender.send(passw_parser).await;
+                    let _ = sender.send(passw_parser).await;
                 });
 
                 tasks.push(passw_task)
@@ -173,23 +167,23 @@ async fn main() -> tokio::io::Result<()> {
                     let sender = tx_cookies.clone();
                     let info = info.clone();
                     if let Ok(content) = archive.reader(&item) {
-
                         let cookie_task = tokio::spawn(async move {
                             let cookie_processor = CookieLogProcessor::new(&info);
 
                             match cookie_processor.parse(content) {
                                 Ok(parsed) => {
-                                    let document = parsed.values()
-                                    .map(|item| item.to_owned())
-                                    .map(|item| serde_json::to_value(item))
-                                    .filter_map(|result| result.ok())
-                                    .collect::<Vec<_>>();
+                                    let document = parsed
+                                        .values()
+                                        .map(|item| item.to_owned())
+                                        .map(|item| serde_json::to_value(item))
+                                        .filter_map(|result| result.ok())
+                                        .collect::<Vec<_>>();
 
-                                    let _=sender.send(document).await;
-                                },
+                                    let _ = sender.send(document).await;
+                                }
                                 Err(err) => {
                                     eprintln!("[-] Cookie parse error {}", err)
-                                },
+                                }
                             }
                         });
 
@@ -198,28 +192,30 @@ async fn main() -> tokio::io::Result<()> {
                 }
             }
         }
+    });
+
+    if logs.is_empty() {
+        rx_cookies.close();
+        rx_passwd.close();
+        let _ = ArchiveUtils::register_hash(&filehash);
     }
 
     let c2_elastic = elastic.clone();
 
     let receiver_cookies = tokio::task::spawn(async move {
-       while let Some(data) = rx_cookies.recv().await {
-        println!("{:?}", data);
-
-           c2_elastic.insert_many("cookies", data).await;
-       }
-    });
+        while let Some(data) = rx_cookies.recv().await {
+            c2_elastic.insert_many("cookies", data).await;
+        }
+    }); 
 
     tasks.push(receiver_cookies);
 
     let c3_elastic = elastic.clone();
 
     let receiver_passwd = tokio::task::spawn(async move {
-
-       while let Some(data) = rx_passwd.recv().await {
-            println!("{:?}", data);
-           c3_elastic.insert_many("credentials", data).await;
-       }
+        while let Some(data) = rx_passwd.recv().await {
+            c3_elastic.insert_many("credentials", data).await;
+        }
     });
 
     tasks.push(receiver_passwd);
@@ -229,6 +225,31 @@ async fn main() -> tokio::io::Result<()> {
     }
 
     println!("Elapsed at: {}", time.elapsed().as_millis());
- 
+
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_file_existence() {
+        let verify = ArchiveUtils::verify_existence("C:\\Users\\conta\\Downloads\\Telegram Desktop\\20240502_stealc_3500x_@logsinspector.zip");
+        assert!(verify.is_ok());
+    }
+
+    #[test]
+    fn check_file_extension() {
+        let verify = ArchiveUtils::verify_extension("C:\\Users\\conta\\Downloads\\Telegram Desktop\\20240502_stealc_3500x_@logsinspector.zip");
+        assert!(verify.is_ok());
+    }
+
+    #[test]
+    fn check_is_registered() {
+        let hash = ArchiveUtils::generate_hash(r"C:\Users\conta\Downloads\Telegram Desktop\2024-05-09_b_@logsinspector.zip").unwrap();
+        let verify = ArchiveUtils::is_registered(&hash).unwrap();
+        println!("{} - {}", hash, verify);
+    }
 }
